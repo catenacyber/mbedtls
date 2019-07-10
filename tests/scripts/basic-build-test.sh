@@ -64,6 +64,7 @@ echo
 
 # Step 1 - Make and instrumented build for code coverage
 export CFLAGS=' --coverage -g3 -O0 '
+export LDFLAGS=' --coverage'
 make clean
 cp "$CONFIG_H" "$CONFIG_BAK"
 scripts/config.pl full
@@ -74,9 +75,12 @@ make -j
 # Step 2 - Execute the tests
 TEST_OUTPUT=out_${PPID}
 cd tests
+if [ ! -f "seedfile" ]; then
+    dd if=/dev/urandom of="seedfile" bs=32 count=1
+fi
 
 # Step 2a - Unit Tests
-perl scripts/run-test-suites.pl -v |tee unit-test-$TEST_OUTPUT
+perl scripts/run-test-suites.pl -v 2 |tee unit-test-$TEST_OUTPUT
 echo
 
 # Step 2b - System Tests
@@ -91,7 +95,10 @@ OPENSSL_CMD="$OPENSSL_LEGACY"                               \
 OPENSSL_CMD="$OPENSSL_LEGACY"                                       \
     GNUTLS_CLI="$GNUTLS_LEGACY_CLI"                                 \
     GNUTLS_SERV="$GNUTLS_LEGACY_SERV"                               \
-    sh compat.sh -e '3DES\|DES-CBC3' -f 'NULL\|DES\|RC4\|ARCFOUR' | \
+    sh compat.sh -e '^$' -f 'NULL\|DES\|RC4\|ARCFOUR' |             \
+    tee -a compat-test-$TEST_OUTPUT
+OPENSSL_CMD="$OPENSSL_NEXT"                     \
+    sh compat.sh -e '^$' -f 'ARIA\|CHACHA' |    \
     tee -a compat-test-$TEST_OUTPUT
 echo
 

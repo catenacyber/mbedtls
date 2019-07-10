@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #define mbedtls_printf          printf
+#define mbedtls_exit            exit
 #define MBEDTLS_EXIT_SUCCESS    EXIT_SUCCESS
 #define MBEDTLS_EXIT_FAILURE    EXIT_FAILURE
 #endif /* MBEDTLS_PLATFORM_C */
@@ -98,6 +99,7 @@ static void dump_pubkey( const char *title, mbedtls_ecdsa_context *key )
 #define dump_buf( a, b, c )
 #define dump_pubkey( a, b )
 #endif
+
 
 int main( int argc, char *argv[] )
 {

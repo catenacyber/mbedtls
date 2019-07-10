@@ -39,6 +39,7 @@
 #define mbedtls_time_t          time_t
 #define mbedtls_fprintf         fprintf
 #define mbedtls_printf          printf
+#define mbedtls_exit            exit
 #define MBEDTLS_EXIT_SUCCESS    EXIT_SUCCESS
 #define MBEDTLS_EXIT_FAILURE    EXIT_FAILURE
 #endif /* MBEDTLS_PLATFORM_C */
@@ -109,9 +110,9 @@ int main( void )
 
 #if defined(MBEDTLS_BASE64_C)
 #define USAGE_AUTH \
-    "    authentication=%%d   default: 0 (disabled)\n"      \
-    "    user_name=%%s        default: \"user\"\n"          \
-    "    user_pwd=%%s         default: \"password\"\n"
+    "    authentication=%%d   default: 0 (disabled)\n"          \
+    "    user_name=%%s        default: \"" DFL_USER_NAME "\"\n" \
+    "    user_pwd=%%s         default: \"" DFL_USER_PWD "\"\n"
 #else
 #define USAGE_AUTH \
     "    authentication options disabled. (Require MBEDTLS_BASE64_C)\n"
@@ -128,18 +129,19 @@ int main( void )
 #endif /* MBEDTLS_FS_IO */
 
 #define USAGE \
-    "\n usage: ssl_mail_client param=<>...\n"               \
-    "\n acceptable parameters:\n"                           \
-    "    server_name=%%s      default: localhost\n"         \
-    "    server_port=%%d      default: 4433\n"              \
-    "    debug_level=%%d      default: 0 (disabled)\n"      \
+    "\n usage: ssl_mail_client param=<>...\n"                 \
+    "\n acceptable parameters:\n"                             \
+    "    server_name=%%s      default: " DFL_SERVER_NAME "\n" \
+    "    server_port=%%d      default: " DFL_SERVER_PORT "\n" \
+    "    debug_level=%%d      default: 0 (disabled)\n"        \
     "    mode=%%d             default: 0 (SSL/TLS) (1 for STARTTLS)\n"  \
-    USAGE_AUTH                                              \
-    "    mail_from=%%s        default: \"\"\n"              \
-    "    mail_to=%%s          default: \"\"\n"              \
-    USAGE_IO                                                \
-    "    force_ciphersuite=<name>    default: all enabled\n"\
+    USAGE_AUTH                                                \
+    "    mail_from=%%s        default: \"\"\n"                \
+    "    mail_to=%%s          default: \"\"\n"                \
+    USAGE_IO                                                  \
+    "    force_ciphersuite=<name>    default: all enabled\n"  \
     " acceptable ciphersuite names:\n"
+
 
 /*
  * global options
@@ -311,7 +313,7 @@ static int write_and_get_response( mbedtls_net_context *sock_fd, unsigned char *
     mbedtls_printf("\n%s", buf);
     if( len && ( ret = mbedtls_net_send( sock_fd, buf, len ) ) <= 0 )
     {
-        mbedtls_printf( " failed\n  ! mbedtls_ssl_write returned %d\n\n", ret );
+        mbedtls_printf( " failed\n  ! mbedtls_net_send returned %d\n\n", ret );
             return -1;
     }
 
@@ -323,7 +325,7 @@ static int write_and_get_response( mbedtls_net_context *sock_fd, unsigned char *
 
         if( ret <= 0 )
         {
-            mbedtls_printf( "failed\n  ! read returned %d\n\n", ret );
+            mbedtls_printf( "failed\n  ! mbedtls_net_recv returned %d\n\n", ret );
             return -1;
         }
 
@@ -356,9 +358,15 @@ int main( int argc, char *argv[] )
     int ret = 1, len;
     int exit_code = MBEDTLS_EXIT_FAILURE;
     mbedtls_net_context server_fd;
-    unsigned char buf[1024];
 #if defined(MBEDTLS_BASE64_C)
     unsigned char base[1024];
+    /* buf is used as the destination buffer for printing base with the format:
+     * "%s\r\n". Hence, the size of buf should be at least the size of base
+     * plus 2 bytes for the \r and \n characters.
+     */
+    unsigned char buf[sizeof( base ) + 2];
+#else
+    unsigned char buf[1024];
 #endif
     char hostname[32];
     const char *pers = "ssl_mail_client";

@@ -11,46 +11,32 @@ Compiler options can be set using conventional environment variables such as `CC
 Compiling
 ---------
 
-There are currently four active build systems used within Mbed TLS releases:
+There are currently three active build systems used within Mbed TLS releases:
 
--   yotta
 -   GNU Make
 -   CMake
 -   Microsoft Visual Studio (Microsoft Visual Studio 2010 or later)
 
 The main systems used for development are CMake and GNU Make. Those systems are always complete and up-to-date. The others should reflect all changes present in the CMake and Make build system, although features may not be ported there automatically.
 
-Yotta, as a build system, is slightly different from the other build systems:
-
--   it provides a minimalistic configuration file by default
--   depending on the yotta target, features of Mbed OS may be used in examples and tests
-
 The Make and CMake build systems create three libraries: libmbedcrypto, libmbedx509, and libmbedtls. Note that libmbedtls depends on libmbedx509 and libmbedcrypto, and libmbedx509 depends on libmbedcrypto. As a result, some linkers will expect flags to be in a specific order, for example the GNU linker wants `-lmbedtls -lmbedx509 -lmbedcrypto`. Also, when loading shared libraries using dlopen(), you'll need to load libmbedcrypto first, then libmbedx509, before you can load libmbedtls.
 
-### Yotta
+### Getting files form git: the Crypto submodule
 
-[yotta](http://yottabuild.org) is a package manager and build system developed by Mbed, and is the build system of Mbed OS 16.03. To install it on your platform, please follow the yotta [installation instructions](http://docs.yottabuild.org/#installing).
+The Mbed Crypto library now has its own git repository, which the Mbed TLS build systems are using as a git submodule in order to build libmbedcrypto as a subproject of Mbed TLS. When cloning the Mbed TLS repository, you need to make sure you're getting the submodule as well:
 
-Once yotta is installed, you can use it to download the latest version of Mbed TLS from the yotta registry with:
+        git clone --recursive https://github.com/ARMmbed/mbedtls.git
 
-    yotta install mbedtls
+Alternatively, if you already have an existing clone of the Mbed TLS
+repository, you can initialise and update the submodule with:
 
-and build it with:
+        git submodule update --init crypto
 
-    yotta build
+After these steps, your clone is now ready for building the libraries as detailed in the following sections.
 
-If, on the other hand, you already have a copy of Mbed TLS from a source other than the yotta registry, for example from cloning our GitHub repository, or from downloading a tarball of the standalone edition, then you'll first need to generate the yotta module by running:
+Note that building libmbedcrypto as a subproject of Mbed TLS does not enable the PSA-specific tests and utility programs. To use these programs, build Mbed Crypto as a standalone project.
 
-    yotta/create-module.sh
-
-This should be executed from the root Mbed TLS project directory. This will create the yotta module in the `yotta/module` directory within it. You can then change to that directory and build as usual:
-
-    cd yotta/module
-    yotta build
-
-In any case, you'll probably want to set the yotta target before building unless it has already been set globally. For more information on using yotta, please consult the [yotta documentation](http://docs.yottabuild.org/).
-
-For more details on the yotta/Mbed OS edition of Mbed TLS, including example programs, please consult the [Readme at the root of the yotta module](https://github.com/ARMmbed/mbedtls/blob/development/yotta/data/README.md).
+Please note that for now, Mbed TLS can only use versions of libmbedcrypto that were built as a subproject of Mbed TLS, not versions that were built standalone from the Mbed Crypto repository. This restriction will be removed in the future.
 
 ### Make
 
@@ -66,7 +52,7 @@ In order to run the tests, enter:
 
     make check
 
-The tests need Perl to be built and run. If you don't have Perl installed, you can skip building the tests with:
+The tests need Python to be built and Perl to be run. If you don't have one of them installed, you can skip building the tests with:
 
     make no_test
 
@@ -78,7 +64,7 @@ In order to build for a Windows platform, you should use `WINDOWS_BUILD=1` if th
 
 Setting the variable `SHARED` in your environment will build shared libraries in addition to the static libraries. Setting `DEBUG` gives you a debug build. You can override `CFLAGS` and `LDFLAGS` by setting them in your environment or on the make command line; compiler warning options may be overridden separately using `WARNING_CFLAGS`. Some directory-specific options (for example, `-I` directives) are still preserved.
 
-Please note that setting `CFLAGS` overrides its default value of `-O2` and setting `WARNING_CFLAGS` overrides its default value (starting with `-Wall -W`), so it you just want to add some warning options to the default ones, you can do so by setting `CFLAGS=-O2 -Werror` for example. Setting `WARNING_CFLAGS` is useful when you want to get rid of its default content (for example because your compiler doesn't accept `-Wall` as an option). Directory-specific options cannot be overriden from the command line.
+Please note that setting `CFLAGS` overrides its default value of `-O2` and setting `WARNING_CFLAGS` overrides its default value (starting with `-Wall -W`), so if you just want to add some warning options to the default ones, you can do so by setting `CFLAGS=-O2 -Werror` for example. Setting `WARNING_CFLAGS` is useful when you want to get rid of its default content (for example because your compiler doesn't accept `-Wall` as an option). Directory-specific options cannot be overridden from the command line.
 
 Depending on your platform, you might run into some issues. Please check the Makefiles in `library/`, `programs/` and `tests/` for options to manually add or remove for specific platforms. You can also check [the Mbed TLS Knowledge Base](https://tls.mbed.org/kb) for articles on your platform or issue.
 
@@ -96,7 +82,7 @@ In order to run the tests, enter:
 
     make test
 
-The test suites need Perl to be built. If you don't have Perl installed, you'll want to disable the test suites with:
+The test suites need Python to be built and Perl to be executed. If you don't have one of these installed, you'll want to disable the test suites with:
 
     cmake -DENABLE_TESTING=Off /path/to/mbedtls_source
 
@@ -164,17 +150,17 @@ on the build mode as seen above), it's merely prepended to it.
 
 The build files for Microsoft Visual Studio are generated for Visual Studio 2010.
 
-The solution file `mbedTLS.sln` contains all the basic projects needed to build the library and all the programs. The files in tests are not generated and compiled, as these need a perl environment as well. However, the selftest program in `programs/test/` is still available.
+The solution file `mbedTLS.sln` contains all the basic projects needed to build the library and all the programs. The files in tests are not generated and compiled, as these need Python and perl environments as well. However, the selftest program in `programs/test/` is still available.
 
 Example programs
 ----------------
 
-We've included example programs for a lot of different features and uses in `programs/`. Most programs only focus on a single feature or usage scenario, so keep that in mind when copying parts of the code.
+We've included example programs for a lot of different features and uses in [`programs/`](programs/README.md). Most programs only focus on a single feature or usage scenario, so keep that in mind when copying parts of the code.
 
 Tests
 -----
 
-Mbed TLS includes an elaborate test suite in `tests/` that initially requires Perl to generate the tests files (e.g. `test\_suite\_mpi.c`). These files are generated from a `function file` (e.g. `suites/test\_suite\_mpi.function`) and a `data file` (e.g. `suites/test\_suite\_mpi.data`). The `function file` contains the test functions. The `data file` contains the test cases, specified as parameters that will be passed to the test function.
+Mbed TLS includes an elaborate test suite in `tests/` that initially requires Python to generate the tests files (e.g. `test\_suite\_mpi.c`). These files are generated from a `function file` (e.g. `suites/test\_suite\_mpi.function`) and a `data file` (e.g. `suites/test\_suite\_mpi.data`). The `function file` contains the test functions. The `data file` contains the test cases, specified as parameters that will be passed to the test function.
 
 For machines with a Unix shell and OpenSSL (and optionally GnuTLS) installed, additional test scripts are available:
 
@@ -188,6 +174,7 @@ Configurations
 --------------
 
 We provide some non-standard configurations focused on specific use cases in the `configs/` directory. You can read more about those in `configs/README.txt`
+
 
 Porting Mbed TLS
 ----------------

@@ -29,10 +29,14 @@
 #include "mbedtls/platform.h"
 #else
 #include <stdio.h>
+#include <stdlib.h>
 #define mbedtls_exit       exit
 #define mbedtls_printf     printf
 #define mbedtls_snprintf   snprintf
 #define mbedtls_free       free
+#define mbedtls_exit            exit
+#define MBEDTLS_EXIT_SUCCESS    EXIT_SUCCESS
+#define MBEDTLS_EXIT_FAILURE    EXIT_FAILURE
 #endif
 
 #if !defined(MBEDTLS_TIMING_C)
@@ -159,7 +163,7 @@ do {                                                                    \
 
 #define MEMORY_MEASURE_PRINT( title_len )                               \
     mbedtls_memory_buffer_alloc_max_get( &max_used, &max_blocks );      \
-    for( ii = 12 - title_len; ii != 0; ii-- ) mbedtls_printf( " " );    \
+    for( ii = 12 - (title_len); ii != 0; ii-- ) mbedtls_printf( " " );  \
     max_used -= prv_used;                                               \
     max_blocks -= prv_blocks;                                           \
     max_bytes = max_used + MEM_BLOCK_OVERHEAD * max_blocks;             \
@@ -253,6 +257,7 @@ typedef struct {
          havege, ctr_drbg, hmac_drbg,
          rsa, dhm, ecdsa, ecdh;
 } todo_list;
+
 
 int main( int argc, char *argv[] )
 {
@@ -700,7 +705,6 @@ int main( int argc, char *argv[] )
             mbedtls_exit(1);
         TIME_AND_TSC( "HMAC_DRBG SHA-1 (NOPR)",
                 mbedtls_hmac_drbg_random( &hmac_drbg, buf, BUFSIZE ) );
-        mbedtls_hmac_drbg_free( &hmac_drbg );
 
         if( mbedtls_hmac_drbg_seed( &hmac_drbg, md_info, myrand, NULL, NULL, 0 ) != 0 )
             mbedtls_exit(1);
@@ -708,7 +712,6 @@ int main( int argc, char *argv[] )
                                              MBEDTLS_HMAC_DRBG_PR_ON );
         TIME_AND_TSC( "HMAC_DRBG SHA-1 (PR)",
                 mbedtls_hmac_drbg_random( &hmac_drbg, buf, BUFSIZE ) );
-        mbedtls_hmac_drbg_free( &hmac_drbg );
 #endif
 
 #if defined(MBEDTLS_SHA256_C)
@@ -719,7 +722,6 @@ int main( int argc, char *argv[] )
             mbedtls_exit(1);
         TIME_AND_TSC( "HMAC_DRBG SHA-256 (NOPR)",
                 mbedtls_hmac_drbg_random( &hmac_drbg, buf, BUFSIZE ) );
-        mbedtls_hmac_drbg_free( &hmac_drbg );
 
         if( mbedtls_hmac_drbg_seed( &hmac_drbg, md_info, myrand, NULL, NULL, 0 ) != 0 )
             mbedtls_exit(1);
@@ -727,8 +729,8 @@ int main( int argc, char *argv[] )
                                              MBEDTLS_HMAC_DRBG_PR_ON );
         TIME_AND_TSC( "HMAC_DRBG SHA-256 (PR)",
                 mbedtls_hmac_drbg_random( &hmac_drbg, buf, BUFSIZE ) );
-        mbedtls_hmac_drbg_free( &hmac_drbg );
 #endif
+        mbedtls_hmac_drbg_free( &hmac_drbg );
     }
 #endif
 
@@ -865,7 +867,7 @@ int main( int argc, char *argv[] )
     }
 #endif
 
-#if defined(MBEDTLS_ECDH_C)
+#if defined(MBEDTLS_ECDH_C) && defined(MBEDTLS_ECDH_LEGACY_CONTEXT)
     if( todo.ecdh )
     {
         mbedtls_ecdh_context ecdh;

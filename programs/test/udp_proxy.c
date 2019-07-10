@@ -40,6 +40,8 @@
 #define mbedtls_time            time
 #define mbedtls_time_t          time_t
 #define mbedtls_printf          printf
+#define mbedtls_calloc          calloc
+#define mbedtls_free            free
 #define MBEDTLS_EXIT_SUCCESS    EXIT_SUCCESS
 #define MBEDTLS_EXIT_FAILURE    EXIT_FAILURE
 #endif /* MBEDTLS_PLATFORM_C */
@@ -106,11 +108,29 @@ int main( void )
     "    delay=%%d            default: 0 (no delayed packets)\n"            \
     "                        delay about 1:N packets randomly\n"            \
     "    delay_ccs=0/1       default: 0 (don't delay ChangeCipherSpec)\n"   \
+    "    delay_cli=%%s        Handshake message from client that should be\n"\
+    "                        delayed. Possible values are 'ClientHello',\n" \
+    "                        'Certificate', 'CertificateVerify', and\n"     \
+    "                        'ClientKeyExchange'.\n"                        \
+    "                        May be used multiple times, even for the same\n"\
+    "                        message, in which case the respective message\n"\
+    "                        gets delayed multiple times.\n"                 \
+    "    delay_srv=%%s        Handshake message from server that should be\n"\
+    "                        delayed. Possible values are 'HelloRequest',\n"\
+    "                        'ServerHello', 'ServerHelloDone', 'Certificate'\n"\
+    "                        'ServerKeyExchange', 'NewSessionTicket',\n"\
+    "                        'HelloVerifyRequest' and ''CertificateRequest'.\n"\
+    "                        May be used multiple times, even for the same\n"\
+    "                        message, in which case the respective message\n"\
+    "                        gets delayed multiple times.\n"                 \
     "    drop=%%d             default: 0 (no dropped packets)\n"            \
     "                        drop about 1:N packets randomly\n"             \
     "    mtu=%%d              default: 0 (unlimited)\n"                     \
     "                        drop packets larger than N bytes\n"            \
     "    bad_ad=0/1          default: 0 (don't add bad ApplicationData)\n"  \
+    "    bad_cid=%%d          default: 0 (don't corrupt Connection IDs)\n"   \
+    "                        duplicate 1:N packets containing a CID,\n" \
+    "                        modifying CID in first instance of the packet.\n" \
     "    protect_hvr=0/1     default: 0 (don't protect HelloVerifyRequest)\n" \
     "    protect_len=%%d      default: (don't protect packets of this size)\n" \
     "\n"                                                                    \
@@ -121,6 +141,9 @@ int main( void )
 /*
  * global options
  */
+
+#define MAX_DELAYED_HS 10
+
 static struct options
 {
     const char *server_addr;    /* address to forward packets to            */
@@ -131,9 +154,16 @@ static struct options
     int duplicate;              /* duplicate 1 in N packets (none if 0)     */
     int delay;                  /* delay 1 packet in N (none if 0)          */
     int delay_ccs;              /* delay ChangeCipherSpec                   */
+    char* delay_cli[MAX_DELAYED_HS];  /* handshake types of messages from
+                                       * client that should be delayed.     */
+    uint8_t delay_cli_cnt;      /* Number of entries in delay_cli.          */
+    char* delay_srv[MAX_DELAYED_HS];  /* handshake types of messages from
+                                       * server that should be delayed.     */
+    uint8_t delay_srv_cnt;      /* Number of entries in delay_srv.          */
     int drop;                   /* drop 1 packet in N (none if 0)           */
     int mtu;                    /* drop packets larger than this            */
     int bad_ad;                 /* inject corrupted ApplicationData record  */
+    unsigned bad_cid;           /* inject corrupted CID record              */
     int protect_hvr;            /* never drop or delay HelloVerifyRequest   */
     int protect_len;            /* never drop/delay packet of the given size*/
     unsigned pack;              /* merge packets into single datagram for
@@ -163,6 +193,11 @@ static void get_options( int argc, char *argv[] )
     opt.listen_port    = DFL_LISTEN_PORT;
     opt.pack           = DFL_PACK;
     /* Other members default to 0 */
+
+    opt.delay_cli_cnt = 0;
+    opt.delay_srv_cnt = 0;
+    memset( opt.delay_cli, 0, sizeof( opt.delay_cli ) );
+    memset( opt.delay_srv, 0, sizeof( opt.delay_srv ) );
 
     for( i = 1; i < argc; i++ )
     {
@@ -197,6 +232,43 @@ static void get_options( int argc, char *argv[] )
             if( opt.delay_ccs < 0 || opt.delay_ccs > 1 )
                 exit_usage( p, q );
         }
+        else if( strcmp( p, "delay_cli" ) == 0 ||
+                 strcmp( p, "delay_srv" ) == 0 )
+        {
+            uint8_t *delay_cnt;
+            char **delay_list;
+            size_t len;
+            char *buf;
+
+            if( strcmp( p, "delay_cli" ) == 0 )
+            {
+                delay_cnt  = &opt.delay_cli_cnt;
+                delay_list = opt.delay_cli;
+            }
+            else
+            {
+                delay_cnt  = &opt.delay_srv_cnt;
+                delay_list = opt.delay_srv;
+            }
+
+            if( *delay_cnt == MAX_DELAYED_HS )
+            {
+                mbedtls_printf( " too many uses of %s: only %d allowed\n",
+                                p, MAX_DELAYED_HS );
+                exit_usage( p, NULL );
+            }
+
+            len = strlen( q );
+            buf = mbedtls_calloc( 1, len + 1 );
+            if( buf == NULL )
+            {
+                mbedtls_printf( " Allocation failure\n" );
+                exit( 1 );
+            }
+            memcpy( buf, q, len + 1 );
+
+            delay_list[ (*delay_cnt)++ ] = buf;
+        }
         else if( strcmp( p, "drop" ) == 0 )
         {
             opt.drop = atoi( q );
@@ -224,6 +296,12 @@ static void get_options( int argc, char *argv[] )
             if( opt.bad_ad < 0 || opt.bad_ad > 1 )
                 exit_usage( p, q );
         }
+#if defined(MBEDTLS_SSL_DTLS_CONNECTION_ID)
+        else if( strcmp( p, "bad_cid" ) == 0 )
+        {
+            opt.bad_cid = (unsigned) atoi( q );
+        }
+#endif /* MBEDTLS_SSL_DTLS_CONNECTION_ID */
         else if( strcmp( p, "protect_hvr" ) == 0 )
         {
             opt.protect_hvr = atoi( q );
@@ -255,6 +333,7 @@ static const char *msg_type( unsigned char *msg, size_t len )
         case MBEDTLS_SSL_MSG_CHANGE_CIPHER_SPEC:    return( "ChangeCipherSpec" );
         case MBEDTLS_SSL_MSG_ALERT:                 return( "Alert" );
         case MBEDTLS_SSL_MSG_APPLICATION_DATA:      return( "ApplicationData" );
+        case MBEDTLS_SSL_MSG_CID:                   return( "CID" );
         case MBEDTLS_SSL_MSG_HANDSHAKE:             break; /* See below */
         default:                            return( "Unknown" );
     }
@@ -368,7 +447,10 @@ static int ctx_buffer_append( ctx_buffer *buf,
     if( sizeof( buf->data ) - buf->len < len )
     {
         if( ( ret = ctx_buffer_flush( buf ) ) <= 0 )
+        {
+            mbedtls_printf( "ctx_buffer_flush failed with -%#04x", -ret );
             return( ret );
+        }
     }
 
     memcpy( buf->data + buf->len, data, len );
@@ -385,6 +467,7 @@ static int dispatch_data( mbedtls_net_context *ctx,
                           const unsigned char * data,
                           size_t len )
 {
+    int ret;
 #if defined(MBEDTLS_TIMING_C)
     ctx_buffer *buf = NULL;
     if( opt.pack > 0 )
@@ -401,7 +484,12 @@ static int dispatch_data( mbedtls_net_context *ctx,
     }
 #endif /* MBEDTLS_TIMING_C */
 
-    return( mbedtls_net_send( ctx, data, len ) );
+    ret = mbedtls_net_send( ctx, data, len );
+    if( ret < 0 )
+    {
+        mbedtls_printf( "net_send returned -%#04x\n", -ret );
+    }
+    return( ret );
 }
 
 typedef struct
@@ -439,6 +527,25 @@ int send_packet( const packet *p, const char *why )
 {
     int ret;
     mbedtls_net_context *dst = p->dst;
+
+    /* insert corrupted CID record? */
+    if( opt.bad_cid != 0 &&
+        strcmp( p->type, "CID" ) == 0 &&
+        ( rand() % opt.bad_cid ) == 0 )
+    {
+        unsigned char buf[MAX_MSG_SIZE];
+        memcpy( buf, p->buf, p->len );
+
+        /* The CID resides at offset 11 in the DTLS record header. */
+        buf[11] ^= 1;
+        print_packet( p, "modified CID" );
+
+        if( ( ret = dispatch_data( dst, buf, p->len ) ) <= 0 )
+        {
+            mbedtls_printf( "  ! dispatch returned %d\n", ret );
+            return( ret );
+        }
+    }
 
     /* insert corrupted ApplicationData record? */
     if( opt.bad_ad &&
@@ -488,11 +595,37 @@ int send_packet( const packet *p, const char *why )
     return( 0 );
 }
 
-static packet prev;
+#define MAX_DELAYED_MSG 5
+static size_t prev_len;
+static packet prev[MAX_DELAYED_MSG];
 
 void clear_pending( void )
 {
-    memset( &prev, 0, sizeof( packet ) );
+    memset( &prev, 0, sizeof( prev ) );
+    prev_len = 0;
+}
+
+void delay_packet( packet *delay )
+{
+    if( prev_len == MAX_DELAYED_MSG )
+        return;
+
+    memcpy( &prev[prev_len++], delay, sizeof( packet ) );
+}
+
+int send_delayed()
+{
+    uint8_t offset;
+    int ret;
+    for( offset = 0; offset < prev_len; offset++ )
+    {
+        ret = send_packet( &prev[offset], "delayed" );
+        if( ret != 0 )
+            return( ret );
+    }
+
+    clear_pending();
+    return( 0 );
 }
 
 /*
@@ -504,32 +637,17 @@ void clear_pending( void )
 static unsigned char dropped[2048] = { 0 };
 #define DROP_MAX 2
 
-/*
- * OpenSSL groups packets in a datagram the first time it sends them, but not
- * when it resends them. Count every record as seen the first time.
- */
+/* We only drop packets at the level of entire datagrams, not at the level
+ * of records. In particular, if the peer changes the way it packs multiple
+ * records into a single datagram, we don't necessarily count the number of
+ * times a record has been dropped correctly. However, the only known reason
+ * why a peer would change datagram packing is disabling the latter on
+ * retransmission, in which case we'd drop involved records at most
+ * DROP_MAX + 1 times. */
 void update_dropped( const packet *p )
 {
     size_t id = p->len % sizeof( dropped );
-    const unsigned char *end = p->buf + p->len;
-    const unsigned char *cur = p->buf;
-    size_t len = ( ( cur[11] << 8 ) | cur[12] ) + 13;
-
     ++dropped[id];
-
-    /* Avoid counting single record twice */
-    if( len == p->len )
-        return;
-
-    while( cur < end )
-    {
-        len = ( ( cur[11] << 8 ) | cur[12] ) + 13;
-
-        id = len % sizeof( dropped );
-        ++dropped[id];
-
-        cur += len;
-    }
 }
 
 int handle_message( const char *way,
@@ -539,6 +657,10 @@ int handle_message( const char *way,
     int ret;
     packet cur;
     size_t id;
+
+    uint8_t delay_idx;
+    char ** delay_list;
+    uint8_t delay_list_len;
 
     /* receive packet */
     if( ( ret = mbedtls_net_recv( src, cur.buf, sizeof( cur.buf ) ) ) <= 0 )
@@ -555,10 +677,42 @@ int handle_message( const char *way,
 
     id = cur.len % sizeof( dropped );
 
+    if( strcmp( way, "S <- C" ) == 0 )
+    {
+        delay_list     = opt.delay_cli;
+        delay_list_len = opt.delay_cli_cnt;
+    }
+    else
+    {
+        delay_list     = opt.delay_srv;
+        delay_list_len = opt.delay_srv_cnt;
+    }
+
+    /* Check if message type is in the list of messages
+     * that should be delayed */
+    for( delay_idx = 0; delay_idx < delay_list_len; delay_idx++ )
+    {
+        if( delay_list[ delay_idx ] == NULL )
+            continue;
+
+        if( strcmp( delay_list[ delay_idx ], cur.type ) == 0 )
+        {
+            /* Delay message */
+            delay_packet( &cur );
+
+            /* Remove entry from list */
+            mbedtls_free( delay_list[delay_idx] );
+            delay_list[delay_idx] = NULL;
+
+            return( 0 );
+        }
+    }
+
     /* do we want to drop, delay, or forward it? */
     if( ( opt.mtu != 0 &&
           cur.len > (unsigned) opt.mtu ) ||
         ( opt.drop != 0 &&
+          strcmp( cur.type, "CID" ) != 0             &&
           strcmp( cur.type, "ApplicationData" ) != 0 &&
           ! ( opt.protect_hvr &&
               strcmp( cur.type, "HelloVerifyRequest" ) == 0 ) &&
@@ -571,15 +725,15 @@ int handle_message( const char *way,
     else if( ( opt.delay_ccs == 1 &&
                strcmp( cur.type, "ChangeCipherSpec" ) == 0 ) ||
              ( opt.delay != 0 &&
+               strcmp( cur.type, "CID" ) != 0             &&
                strcmp( cur.type, "ApplicationData" ) != 0 &&
                ! ( opt.protect_hvr &&
                    strcmp( cur.type, "HelloVerifyRequest" ) == 0 ) &&
-               prev.dst == NULL &&
                cur.len != (size_t) opt.protect_len &&
                dropped[id] < DROP_MAX &&
                rand() % opt.delay == 0 ) )
     {
-        memcpy( &prev, &cur, sizeof( packet ) );
+        delay_packet( &cur );
     }
     else
     {
@@ -587,14 +741,10 @@ int handle_message( const char *way,
         if( ( ret = send_packet( &cur, "forwarded" ) ) != 0 )
             return( ret );
 
-        /* send previously delayed message if any */
-        if( prev.dst != NULL )
-        {
-            ret = send_packet( &prev, "delayed" );
-            memset( &prev, 0, sizeof( packet ) );
-            if( ret != 0 )
-                return( ret );
-        }
+        /* send previously delayed messages if any */
+        ret = send_delayed();
+        if( ret != 0 )
+            return( ret );
     }
 
     return( 0 );
@@ -604,6 +754,7 @@ int main( int argc, char *argv[] )
 {
     int ret = 1;
     int exit_code = MBEDTLS_EXIT_FAILURE;
+    uint8_t delay_idx;
 
     mbedtls_net_context listen_fd, client_fd, server_fd;
 
@@ -797,6 +948,12 @@ exit:
         fflush( stdout );
     }
 #endif
+
+    for( delay_idx = 0; delay_idx < MAX_DELAYED_HS; delay_idx++ )
+    {
+        mbedtls_free( opt.delay_cli + delay_idx );
+        mbedtls_free( opt.delay_srv + delay_idx );
+    }
 
     mbedtls_net_free( &client_fd );
     mbedtls_net_free( &server_fd );

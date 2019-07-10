@@ -77,6 +77,7 @@
 #include "mbedtls/memory_buffer_alloc.h"
 #endif
 
+
 static int test_snprintf( size_t n, const char ref_buf[10], int ref_ret )
 {
     int ret;
